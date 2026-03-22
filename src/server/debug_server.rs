@@ -17,6 +17,12 @@ pub struct DebugServer {
     engine: Option<DebuggerEngine>,
     token: Option<String>,
     tls_config: Option<ServerConfig>,
+    pending_execution: Option<PendingExecution>,
+}
+
+struct PendingExecution {
+    function: String,
+    args: Option<String>,
 }
 
 impl DebugServer {
@@ -35,6 +41,7 @@ impl DebugServer {
             engine: None,
             token,
             tls_config,
+            pending_execution: None,
         })
     }
 
@@ -150,6 +157,7 @@ impl DebugServer {
                     Ok(bytes) => match crate::runtime::executor::ContractExecutor::new(bytes) {
                         Ok(executor) => {
                             self.engine = Some(DebuggerEngine::new(executor, Vec::new()));
+                            self.pending_execution = None;
                             DebugResponse::ContractLoaded {
                                 size: fs::metadata(&contract_path)
                                     .map(|m| m.len() as usize)
@@ -165,17 +173,38 @@ impl DebugServer {
                     },
                 },
                 DebugRequest::Execute { function, args } => match self.engine.as_mut() {
-                    Some(engine) => match engine.execute(&function, args.as_deref()) {
-                        Ok(res) => DebugResponse::ExecutionResult {
+                    Some(engine) if engine.breakpoints().should_break(&function) => {
+                        engine.prepare_breakpoint_stop(&function, args.as_deref());
+                        self.pending_execution = Some(PendingExecution { function, args });
+                        DebugResponse::ExecutionResult {
                             success: true,
-                            output: res,
-                            error: None,
-                        },
-                        Err(e) => DebugResponse::ExecutionResult {
-                            success: false,
                             output: String::new(),
-                            error: Some(e.to_string()),
-                        },
+                            error: None,
+                            paused: true,
+                            completed: false,
+                        }
+                    }
+                    Some(engine) => match engine.execute_without_breakpoints(&function, args.as_deref()) {
+                        Ok(res) => {
+                            self.pending_execution = None;
+                            DebugResponse::ExecutionResult {
+                                success: true,
+                                output: res,
+                                error: None,
+                                paused: engine.is_paused(),
+                                completed: true,
+                            }
+                        }
+                        Err(e) => {
+                            self.pending_execution = None;
+                            DebugResponse::ExecutionResult {
+                                success: false,
+                                output: String::new(),
+                                error: Some(e.to_string()),
+                                paused: false,
+                                completed: true,
+                            }
+                        }
                     },
                     None => DebugResponse::Error {
                         message: "No contract loaded".to_string(),
@@ -209,18 +238,39 @@ impl DebugServer {
                     },
                 },
                 DebugRequest::Continue => match self.engine.as_mut() {
-                    Some(engine) => match engine.continue_execution() {
-                        Ok(_) => DebugResponse::ContinueResult {
-                            completed: true,
-                            output: None,
-                            error: None,
-                        },
-                        Err(e) => DebugResponse::ContinueResult {
-                            completed: false,
-                            output: None,
-                            error: Some(e.to_string()),
-                        },
-                    },
+                    Some(engine) => {
+                        if let Some(pending) = self.pending_execution.take() {
+                            match engine.execute_without_breakpoints(&pending.function, pending.args.as_deref()) {
+                                Ok(output) => DebugResponse::ContinueResult {
+                                    completed: true,
+                                    output: Some(output),
+                                    error: None,
+                                    paused: false,
+                                },
+                                Err(e) => DebugResponse::ContinueResult {
+                                    completed: false,
+                                    output: None,
+                                    error: Some(e.to_string()),
+                                    paused: false,
+                                },
+                            }
+                        } else {
+                            match engine.continue_execution() {
+                                Ok(_) => DebugResponse::ContinueResult {
+                                    completed: true,
+                                    output: None,
+                                    error: None,
+                                    paused: engine.is_paused(),
+                                },
+                                Err(e) => DebugResponse::ContinueResult {
+                                    completed: false,
+                                    output: None,
+                                    error: Some(e.to_string()),
+                                    paused: engine.is_paused(),
+                                },
+                            }
+                        }
+                    }
                     None => DebugResponse::Error {
                         message: "No contract loaded".to_string(),
                     },

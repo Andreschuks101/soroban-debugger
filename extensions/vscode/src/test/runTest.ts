@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DebuggerProcess } from '../cli/debuggerProcess';
+import { resolveSourceBreakpoints } from '../dap/sourceBreakpoints';
 
 async function main(): Promise<void> {
   const extensionRoot = process.cwd();
@@ -37,6 +38,22 @@ async function main(): Promise<void> {
 
   await debuggerProcess.start();
   await debuggerProcess.ping();
+
+  const sourcePath = path.join(repoRoot, 'tests', 'fixtures', 'contracts', 'counter', 'src', 'lib.rs');
+  const exportedFunctions = await debuggerProcess.getContractFunctions();
+  const resolvedBreakpoints = resolveSourceBreakpoints(sourcePath, [9, 19], exportedFunctions);
+  assert.equal(resolvedBreakpoints[0].verified, true, 'Expected increment breakpoint to resolve');
+  assert.equal(resolvedBreakpoints[0].functionName, 'increment');
+  assert.equal(resolvedBreakpoints[1].verified, true, 'Expected get breakpoint to resolve');
+  assert.equal(resolvedBreakpoints[1].functionName, 'get');
+
+  await debuggerProcess.setBreakpoint('increment');
+  const paused = await debuggerProcess.execute();
+  assert.equal(paused.paused, true, 'Expected breakpoint to pause before execution');
+
+  const resumed = await debuggerProcess.continueExecution();
+  assert.match(resumed.output || '', /I64\(1\)/, 'Expected continue() to finish increment()');
+  await debuggerProcess.clearBreakpoint('increment');
 
   const result = await debuggerProcess.execute();
   assert.match(result.output, /I64\(1\)/, 'Expected increment() to return I64(1)');

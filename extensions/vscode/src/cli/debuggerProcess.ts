@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, execFile, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
@@ -16,6 +16,8 @@ export interface DebuggerProcessConfig {
 
 export interface DebuggerExecutionResult {
   output: string;
+  paused: boolean;
+  completed: boolean;
 }
 
 export interface DebuggerInspection {
@@ -23,6 +25,12 @@ export interface DebuggerInspection {
   stepCount: number;
   paused: boolean;
   callStack: string[];
+}
+
+export interface DebuggerContinueResult {
+  completed: boolean;
+  output?: string;
+  paused: boolean;
 }
 
 type DebugRequest =
@@ -33,6 +41,8 @@ type DebugRequest =
   | { type: 'Continue' }
   | { type: 'Inspect' }
   | { type: 'GetStorage' }
+  | { type: 'SetBreakpoint'; function: string }
+  | { type: 'ClearBreakpoint'; function: string }
   | { type: 'Ping' }
   | { type: 'Disconnect' }
   | { type: 'LoadSnapshot'; snapshot_path: string };
@@ -40,12 +50,14 @@ type DebugRequest =
 type DebugResponse =
   | { type: 'Authenticated'; success: boolean; message: string }
   | { type: 'ContractLoaded'; size: number }
-  | { type: 'ExecutionResult'; success: boolean; output: string; error?: string }
+  | { type: 'ExecutionResult'; success: boolean; output: string; error?: string; paused: boolean; completed: boolean }
   | { type: 'StepResult'; paused: boolean; current_function?: string; step_count: number }
-  | { type: 'ContinueResult'; completed: boolean; output?: string; error?: string }
+  | { type: 'ContinueResult'; completed: boolean; output?: string; error?: string; paused: boolean }
   | { type: 'InspectionResult'; function?: string; step_count: number; paused: boolean; call_stack: string[] }
   | { type: 'StorageState'; storage_json: string }
   | { type: 'SnapshotLoaded'; summary: string }
+  | { type: 'BreakpointSet'; function: string }
+  | { type: 'BreakpointCleared'; function: string }
   | { type: 'Pong' }
   | { type: 'Disconnected' }
   | { type: 'Error'; message: string };
@@ -141,7 +153,11 @@ export class DebuggerProcess {
       throw new Error(response.error || 'Execution failed');
     }
 
-    return { output: response.output };
+    return {
+      output: response.output,
+      paused: response.paused,
+      completed: response.completed
+    };
   }
 
   async step(): Promise<void> {
@@ -149,12 +165,17 @@ export class DebuggerProcess {
     this.expectResponse(response, 'StepResult');
   }
 
-  async continueExecution(): Promise<void> {
+  async continueExecution(): Promise<DebuggerContinueResult> {
     const response = await this.sendRequest({ type: 'Continue' });
     this.expectResponse(response, 'ContinueResult');
     if (response.error) {
       throw new Error(response.error);
     }
+    return {
+      completed: response.completed,
+      output: response.output,
+      paused: response.paused
+    };
   }
 
   async inspect(): Promise<DebuggerInspection> {
@@ -181,6 +202,51 @@ export class DebuggerProcess {
   async ping(): Promise<void> {
     const response = await this.sendRequest({ type: 'Ping' });
     this.expectResponse(response, 'Pong');
+  }
+
+  async setBreakpoint(functionName: string): Promise<void> {
+    const response = await this.sendRequest({
+      type: 'SetBreakpoint',
+      function: functionName
+    });
+    this.expectResponse(response, 'BreakpointSet');
+  }
+
+  async clearBreakpoint(functionName: string): Promise<void> {
+    const response = await this.sendRequest({
+      type: 'ClearBreakpoint',
+      function: functionName
+    });
+    this.expectResponse(response, 'BreakpointCleared');
+  }
+
+  async getContractFunctions(): Promise<Set<string>> {
+    const binaryPath = this.resolveBinaryPath();
+
+    const output = await new Promise<string>((resolve, reject) => {
+      execFile(
+        binaryPath,
+        ['inspect', '--contract', this.config.contractPath, '--functions'],
+        { env: process.env },
+        (error, stdout, stderr) => {
+          if (error) {
+            reject(new Error(stderr || stdout || String(error)));
+            return;
+          }
+          resolve(stdout);
+        }
+      );
+    });
+
+    const functions = new Set<string>();
+    for (const line of output.split(/\r?\n/)) {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\(/);
+      if (match) {
+        functions.add(match[1]);
+      }
+    }
+
+    return functions;
   }
 
   async stop(): Promise<void> {

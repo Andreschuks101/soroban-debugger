@@ -71,6 +71,8 @@ pub enum DebugResponse {
         success: bool,
         output: String,
         error: Option<String>,
+        paused: bool,
+        completed: bool,
     },
 
     /// Step result
@@ -85,6 +87,7 @@ pub enum DebugResponse {
         completed: bool,
         output: Option<String>,
         error: Option<String>,
+        paused: bool,
     },
 
     /// Inspection result

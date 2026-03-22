@@ -91,6 +91,7 @@ impl RemoteClient {
                 success,
                 output,
                 error,
+                ..
             } => {
                 if success {
                     Ok(output)

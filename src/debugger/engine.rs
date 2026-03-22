@@ -78,7 +78,21 @@ impl DebuggerEngine {
     /// Execute a contract function with debugging.
     #[tracing::instrument(skip(self), fields(function = function))]
     pub fn execute(&mut self, function: &str, args: Option<&str>) -> Result<String> {
+        self.execute_internal(function, args, true)
+    }
+
+    pub fn execute_without_breakpoints(&mut self, function: &str, args: Option<&str>) -> Result<String> {
+        self.execute_internal(function, args, false)
+    }
+
+    fn execute_internal(
+        &mut self,
+        function: &str,
+        args: Option<&str>,
+        check_breakpoints: bool,
+    ) -> Result<String> {
         info!("Executing function: {}", function);
+        self.paused = false;
 
         if let Ok(mut state) = self.state.lock() {
             state.set_current_function(function.to_string(), args.map(str::to_string));
@@ -86,7 +100,7 @@ impl DebuggerEngine {
             state.call_stack_mut().push(function.to_string(), None);
         }
 
-        if self.breakpoints.should_break(function) {
+        if check_breakpoints && self.breakpoints.should_break(function) {
             self.pause_at_function(function);
         }
 
@@ -108,6 +122,17 @@ impl DebuggerEngine {
         }
 
         result
+    }
+
+    pub fn prepare_breakpoint_stop(&mut self, function: &str, args: Option<&str>) {
+        if let Ok(mut state) = self.state.lock() {
+            state.set_current_function(function.to_string(), args.map(str::to_string));
+            state.call_stack_mut().clear();
+            state.call_stack_mut().push(function.to_string(), None);
+        }
+
+        crate::logging::log_breakpoint(function);
+        self.paused = true;
     }
 
     fn update_call_stack(&mut self, total_duration: std::time::Duration) -> Result<()> {
@@ -284,6 +309,10 @@ impl DebuggerEngine {
 
     pub fn breakpoints_mut(&mut self) -> &mut BreakpointManager {
         &mut self.breakpoints
+    }
+
+    pub fn breakpoints(&self) -> &BreakpointManager {
+        &self.breakpoints
     }
 
     pub fn executor(&self) -> &ContractExecutor {
