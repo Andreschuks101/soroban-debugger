@@ -179,13 +179,15 @@ impl HistoryManager {
         // single-record list, destroying all salvageable data.
         let history: Vec<RunHistory> = serde_json::from_reader(reader).map_err(|e| {
             DebuggerError::FileError(format!(
-                "History file {:?} could not be parsed ({}). \
+                "History file \"{}\" could not be parsed ({}). \
                  The file may be corrupt or was written by an incompatible version. \
                  Recovery options:\n\
-                 \x20 1. Inspect the file with `cat {:?}` and fix any JSON syntax errors.\n\
-                 \x20 2. Back up and remove the file (`mv {:?} {:?}.bak`) to start fresh.\n\
+                 \x20 1. Inspect the file with `cat \"{}\"` and fix any JSON syntax errors.\n\
+                 \x20 2. Back up and remove the file (`mv \"{}\" \"{}.bak\"`) to start fresh.\n\
                  \x20 3. Restore from a previous backup if one exists.",
-                self.file_path, e, self.file_path, self.file_path, self.file_path,
+                self.file_path.display(), e,
+                self.file_path.display(),
+                self.file_path.display(), self.file_path.display(),
             ))
         })?;
         Ok(history)

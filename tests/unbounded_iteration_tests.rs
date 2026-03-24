@@ -305,7 +305,6 @@ fn provides_rich_context_in_findings() {
     assert!(context.control_flow_info.is_some());
     let cf_info = context.control_flow_info.as_ref().unwrap();
     assert!(!cf_info.loop_types.is_empty());
-    assert!(cf_info.conditional_branches >= 0);
 
     // Check storage call pattern
     assert!(context.storage_call_pattern.is_some());
