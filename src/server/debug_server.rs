@@ -810,6 +810,9 @@ impl DebugServer {
                 },
                 DebugRequest::Ping => DebugResponse::Pong,
                 DebugRequest::Disconnect => DebugResponse::Disconnected,
+                DebugRequest::Unknown => DebugResponse::Error {
+                    message: "Unknown request type".to_string(),
+                },
             };
 
             let response = DebugMessage::response(message.id, response);

@@ -865,6 +865,10 @@ pub struct CompareArgs {
     /// Output file for the comparison report (default: stdout)
     #[arg(short, long)]
     pub output: Option<PathBuf>,
+
+    /// Number of context lines to show around the first divergence
+    #[arg(short = 'C', long, default_value_t = 3)]
+    pub context: usize,
 }
 
 /// Arguments for the TUI dashboard subcommand
@@ -1007,6 +1011,10 @@ pub struct ReplayArgs {
     /// Show verbose output during replay
     #[arg(short, long)]
     pub verbose: bool,
+ 
+    /// Number of context lines to show for divergence (default: 3)
+    #[arg(short = 'C', long, default_value_t = 3)]
+    pub context: usize,
 }
 
 #[derive(Parser)]
