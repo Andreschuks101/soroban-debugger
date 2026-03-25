@@ -1,6 +1,6 @@
 use super::api::{OutputFormatter, PluginCommand, PluginError, PluginResult};
 use super::events::{EventContext, ExecutionEvent};
-use super::loader::{LoadedPlugin, PluginLoader};
+use super::loader::{LoadedPlugin, PluginLoader, PluginTrustPolicy};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -233,6 +233,14 @@ impl PluginRegistry {
 
     /// Create a new plugin registry with a custom plugin directory
     pub fn with_plugin_dir(plugin_dir: PathBuf) -> PluginResult<Self> {
+        Self::with_plugin_dir_and_trust_policy(plugin_dir, PluginTrustPolicy::default())
+    }
+
+    /// Create a new plugin registry with a custom plugin directory and trust policy
+    pub fn with_plugin_dir_and_trust_policy(
+        plugin_dir: PathBuf,
+        trust_policy: PluginTrustPolicy,
+    ) -> PluginResult<Self> {
         // Ensure plugin directory exists
         if !plugin_dir.exists() {
             info!("Creating plugin directory: {:?}", plugin_dir);
@@ -246,7 +254,7 @@ impl PluginRegistry {
 
         Ok(Self {
             plugins: HashMap::new(),
-            loader: PluginLoader::new(plugin_dir),
+            loader: PluginLoader::with_trust_policy(plugin_dir, trust_policy),
             hot_reload_enabled: false,
         })
     }

@@ -31,6 +31,10 @@ pub enum PluginError {
     /// Dependency error
     #[error("Dependency error: {0}")]
     DependencyError(String),
+
+    /// Trust policy violation
+    #[error("Plugin trust policy violation: {0}")]
+    TrustViolation(String),
 }
 
 /// Custom CLI command that a plugin can provide
@@ -191,6 +195,7 @@ mod tests {
             },
             library: "test.so".to_string(),
             dependencies: vec![],
+            signature: None,
         };
 
         let plugin = TestPlugin {
