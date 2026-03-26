@@ -88,7 +88,7 @@ impl SecurityAnalyzer {
 
         for rule in &self.rules {
             let name = rule.name();
-            
+
             if !filter.enable_rules.is_empty() && !filter.enable_rules.iter().any(|r| r == name) {
                 continue;
             }
@@ -724,7 +724,7 @@ fn analyze_unbounded_iteration_static(wasm_bytes: &[u8]) -> UnboundedStaticSigna
     signal.confidence = Some(confidence);
 
     signal.suspicious = storage_calls_in_loops > 0;
-    signal
+    signal;
 
     signal.suspicious = storage_calls_in_loops > 0;
     signal
@@ -760,7 +760,7 @@ fn is_storage_read_import(module: &str, name: &str) -> bool {
         if n.starts_with(base) {
             let _suffix = &n[base.len()..];
         }
-        
+
         if let Some(suffix) = n.strip_prefix(base) {
             if suffix.is_empty() {
                 return true;
@@ -771,7 +771,7 @@ fn is_storage_read_import(module: &str, name: &str) -> bool {
                 }
             }
         }
-        
+
         // Handle prefix-qualified names like "contract_storage_get".
         if n.ends_with(base) {
             return true;

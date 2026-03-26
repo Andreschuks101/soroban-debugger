@@ -48,11 +48,7 @@ impl FlameGraphGenerator {
                     stacks.push(FlameGraphStack {
                         stack: vec![
                             function.name.clone(),
-                            format!(
-                                "storage;key{};access_count={}",
-                                idx,
-                                access.access_count
-                            ),
+                            format!("storage;key{};access_count={}", idx, access.access_count),
                         ],
                         count: access_count,
                     });
