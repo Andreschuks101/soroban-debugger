@@ -3,7 +3,7 @@
 //! This example shows how the enhanced security analyzer can detect
 //! storage-driven loops with improved precision and confidence scoring.
 
-use soroban_debugger::analyzer::security::SecurityAnalyzer;
+use soroban_debugger::analyzer::security::{AnalyzerFilter, SecurityAnalyzer};
 
 fn main() {
     println!("Testing improved unbounded iteration detection...");
@@ -12,7 +12,8 @@ fn main() {
     let wasm_with_storage_loop = create_wasm_with_storage_loop();
 
     let analyzer = SecurityAnalyzer::new();
-    match analyzer.analyze(&wasm_with_storage_loop, None, None) {
+    let filter = AnalyzerFilter::default();
+    match analyzer.analyze(&wasm_with_storage_loop, None, None, &filter) {
         Ok(report) => {
             println!(
                 "Analysis complete. Found {} security issues.",
@@ -20,13 +21,15 @@ fn main() {
             );
 
             for finding in &report.findings {
-                if finding.rule_id == "unbounded-iteration" {
-                    println!("🔍 Unbounded Iteration Finding:");
+                if finding.rule_id == "unbounded-iteration"
+                    || finding.rule_id == "storage-write-pressure"
+                {
+                    println!("🔍 {} Finding:", finding.rule_id);
                     println!("  Severity: {:?}", finding.severity);
                     println!("  Description: {}", finding.description);
 
                     if let Some(confidence) = &finding.confidence {
-                        println!("  Confidence: {:.0}%", confidence * 100.0);
+                        println!("  Confidence: {:.0}%", confidence);
                     }
                     if let Some(rationale) = &finding.rationale {
                         println!("  Rationale: {}", rationale);
@@ -97,9 +100,9 @@ mod tests {
     fn test_unbounded_iteration_detection() {
         let wasm = create_wasm_with_storage_loop();
         let analyzer = SecurityAnalyzer::new();
-
+        let filter = AnalyzerFilter::default();
         let report = analyzer
-            .analyze(&wasm, None, None)
+            .analyze(&wasm, None, None, &filter)
             .expect("Analysis should succeed");
 
         // Should find the unbounded iteration issue
@@ -120,7 +123,10 @@ mod tests {
             soroban_debugger::analyzer::security::Severity::High
         );
 
+        // Should have confidence metadata
         assert!(finding.confidence.is_some());
         assert!(finding.rationale.is_some());
+        assert!(!finding.rationale.as_ref().unwrap().is_empty());
+        assert!(finding.confidence.unwrap_or_default() >= 0.5);
     }
 }

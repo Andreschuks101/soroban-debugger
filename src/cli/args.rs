@@ -1314,9 +1314,31 @@ pub struct SymbolicArgs {
     #[arg(long, value_name = "N")]
     pub path_cap: Option<usize>,
 
-    /// Overall symbolic analysis timeout in seconds
+    /// Maximum time for symbolic analysis, in seconds.
+    /// When omitted, the budget is controlled by --profile.
+    /// The command exits with a non-zero status code if this limit is exceeded.
+    /// Use 0 to disable the timeout entirely.
     #[arg(long, value_name = "SECONDS")]
     pub timeout: Option<u64>,
+
+    /// Seed the exploration order with this integer so the run is fully
+    /// reproducible.  The emitted "Replay token" value can be passed here
+    /// or to `--replay` on any subsequent run to reproduce the exact same
+    /// path ordering.  Mutually exclusive with `--replay`.
+    #[arg(long, value_name = "N", conflicts_with = "replay")]
+    pub seed: Option<u64>,
+
+    /// Replay a previous symbolic run by providing its replay token (the seed
+    /// value printed at the end of the original run).  Equivalent to
+    /// `--seed <TOKEN>`.  Mutually exclusive with `--seed`.
+    #[arg(long, value_name = "TOKEN", conflicts_with = "seed")]
+    pub replay: Option<u64>,
+
+    /// Path to a JSON file containing initial storage state to seed before
+    /// symbolic exploration. This allows testing how different storage states
+    /// affect contract behavior. The JSON should be a map of key-value pairs.
+    #[arg(long, value_name = "FILE")]
+    pub storage_seed: Option<PathBuf>,
 }
 
 #[derive(Parser)]

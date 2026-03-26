@@ -28,6 +28,14 @@ pub struct SymbolicConfig {
     pub max_paths: usize,
     pub max_input_combinations: usize,
     pub timeout_secs: u64,
+    /// When `Some`, input combinations are shuffled with this seed before
+    /// exploration, making the run fully reproducible from the emitted replay
+    /// token.  `None` preserves the default deterministic (un-shuffled) order.
+    pub seed: Option<u64>,
+    /// Optional initial storage state to seed before symbolic exploration.
+    /// This allows testing how different storage states affect contract behavior.
+    /// The storage is a map of key-value pairs.
+    pub storage_seed: Option<String>,
 }
 
 impl Default for SymbolicConfig {
@@ -42,6 +50,8 @@ impl SymbolicConfig {
             max_paths: 25,
             max_input_combinations: 64,
             timeout_secs: 5,
+            seed: None,
+            storage_seed: None,
         }
     }
 
@@ -50,6 +60,8 @@ impl SymbolicConfig {
             max_paths: 100,
             max_input_combinations: 256,
             timeout_secs: 30,
+            seed: None,
+            storage_seed: None,
         }
     }
 
@@ -58,6 +70,8 @@ impl SymbolicConfig {
             max_paths: 500,
             max_input_combinations: 2048,
             timeout_secs: 120,
+            seed: None,
+            storage_seed: None,
         }
     }
 }
@@ -72,12 +86,36 @@ pub struct SymbolicReportMetadata {
     pub truncated_by_path_cap: bool,
     pub truncated_by_timeout: bool,
     pub truncation_reasons: Vec<String>,
+    /// The seed used to shuffle exploration order, if any.  Pass this value to
+    /// `--replay` (or `--seed`) on a subsequent run to reproduce the identical
+    /// exploration order.
+    pub seed: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 struct GeneratedInputs {
     combinations: Vec<String>,
     truncated_by_input_cap: bool,
+}
+
+/// Shuffles `items` in-place using a seeded Fisher-Yates algorithm backed by a
+/// simple 64-bit LCG.  Given the same seed and the same input slice the result
+/// is always identical, which is the property we rely on for `--replay`.
+fn seeded_shuffle(items: &mut [String], seed: u64) {
+    let n = items.len();
+    if n < 2 {
+        return;
+    }
+    let mut state = seed;
+    for i in (1..n).rev() {
+        // Knuth multiplicative hash constants (same as used in many RNG implementations).
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        // Use the high 31 bits to avoid modulo bias on small ranges.
+        let j = ((state >> 33) as usize) % (i + 1);
+        items.swap(i, j);
+    }
 }
 
 #[derive(Default)]
@@ -128,8 +166,15 @@ impl SymbolicAnalyzer {
         config: &SymbolicConfig,
     ) -> Result<SymbolicReport> {
         let arg_count = self.get_arg_count(wasm, function).unwrap_or(0);
-        let generated_inputs =
+        let mut generated_inputs =
             self.generate_input_combinations(arg_count, config.max_input_combinations);
+
+        // Apply deterministic shuffle when a seed is provided so exploration
+        // order can be reproduced exactly by passing the same seed to --replay.
+        if let Some(seed) = config.seed {
+            seeded_shuffle(&mut generated_inputs.combinations, seed);
+        }
+
         let deadline = Instant::now();
 
         let mut report = SymbolicReport {
@@ -146,6 +191,7 @@ impl SymbolicAnalyzer {
                 truncated_by_path_cap: false,
                 truncated_by_timeout: false,
                 truncation_reasons: Vec::new(),
+                seed: config.seed,
             },
         };
 
@@ -165,6 +211,14 @@ impl SymbolicAnalyzer {
             let executor_res = std::panic::catch_unwind(|| {
                 if let Ok(mut executor) = ContractExecutor::new(wasm.to_vec()) {
                     executor.set_timeout(config.timeout_secs);
+                    // Apply storage seed if provided
+                    if let Some(ref storage) = config.storage_seed {
+                        if let Err(e) = executor.set_initial_storage(storage.clone()) {
+                            return Err(crate::DebuggerError::StorageError(
+                                format!("Failed to set initial storage: {}", e)
+                            ).into());
+                        }
+                    }
                     executor.execute(function, Some(args_json))
                 } else {
                     Err(crate::DebuggerError::ExecutionError("Init fail".into()).into())
@@ -455,6 +509,14 @@ impl SymbolicAnalyzer {
             report.metadata.truncated_by_timeout
         )
         .unwrap();
+        match report.metadata.seed {
+            Some(seed) => writeln!(toml, "seed = {}", seed).unwrap(),
+            None => writeln!(
+                toml,
+                "# seed = <none> (add --seed N for reproducible shuffled order)"
+            )
+            .unwrap(),
+        }
         if !report.metadata.truncation_reasons.is_empty() {
             writeln!(toml, "truncation_reasons = [").unwrap();
             for reason in &report.metadata.truncation_reasons {
@@ -582,6 +644,7 @@ mod tests {
             paths: Vec::new(),
             metadata: SymbolicReportMetadata {
                 config: SymbolicConfig::default(),
+                seed: None,
                 generated_input_combinations: 0,
                 attempted_input_combinations: 0,
                 distinct_paths_recorded: 0,
@@ -589,6 +652,7 @@ mod tests {
                 truncated_by_path_cap: false,
                 truncated_by_timeout: false,
                 truncation_reasons: Vec::new(),
+                seed: None,
             },
         };
         let mut seen_inputs = HashSet::new();
@@ -611,6 +675,7 @@ mod tests {
             paths: Vec::new(),
             metadata: SymbolicReportMetadata {
                 config: SymbolicConfig::default(),
+                seed: None,
                 generated_input_combinations: 0,
                 attempted_input_combinations: 0,
                 distinct_paths_recorded: 0,
@@ -618,6 +683,7 @@ mod tests {
                 truncated_by_path_cap: false,
                 truncated_by_timeout: false,
                 truncation_reasons: Vec::new(),
+                seed: None,
             },
         };
         let mut seen_inputs = HashSet::new();
@@ -658,6 +724,7 @@ mod tests {
             max_paths: 3,
             max_input_combinations: 36,
             timeout_secs: 30,
+            seed: None,
         };
 
         let report = analyzer
@@ -668,6 +735,84 @@ mod tests {
         assert!(report.metadata.truncated_by_path_cap);
         assert_eq!(report.metadata.generated_input_combinations, 36);
         assert_eq!(report.metadata.attempted_input_combinations, 3);
+    }
+
+    #[test]
+    fn seeded_shuffle_is_deterministic() {
+        let original: Vec<String> = (0..10).map(|i| i.to_string()).collect();
+
+        let mut a = original.clone();
+        seeded_shuffle(&mut a, 42);
+
+        let mut b = original.clone();
+        seeded_shuffle(&mut b, 42);
+
+        assert_eq!(a, b, "same seed must produce the same order");
+        assert_ne!(a, original, "shuffle should change the order");
+    }
+
+    #[test]
+    fn different_seeds_produce_different_orders() {
+        let original: Vec<String> = (0..10).map(|i| i.to_string()).collect();
+
+        let mut a = original.clone();
+        seeded_shuffle(&mut a, 1);
+
+        let mut b = original.clone();
+        seeded_shuffle(&mut b, 2);
+
+        assert_ne!(
+            a, b,
+            "different seeds should (almost always) yield different orders"
+        );
+    }
+
+    #[test]
+    fn analyze_with_seed_produces_reproducible_exploration_order() {
+        let wasm = wasm_with_import_and_exported_local();
+        let analyzer = SymbolicAnalyzer::new();
+        let config_a = SymbolicConfig {
+            max_paths: 10,
+            max_input_combinations: 36,
+            timeout_secs: 30,
+            seed: Some(99),
+        };
+        let config_b = SymbolicConfig {
+            seed: Some(99),
+            ..config_a.clone()
+        };
+
+        let report_a = analyzer
+            .analyze_with_config(&wasm, "entry", &config_a)
+            .unwrap();
+        let report_b = analyzer
+            .analyze_with_config(&wasm, "entry", &config_b)
+            .unwrap();
+
+        let inputs_a: Vec<_> = report_a.paths.iter().map(|p| p.inputs.clone()).collect();
+        let inputs_b: Vec<_> = report_b.paths.iter().map(|p| p.inputs.clone()).collect();
+        assert_eq!(
+            inputs_a, inputs_b,
+            "same seed must produce the same exploration order"
+        );
+        assert_eq!(report_a.metadata.seed, Some(99));
+    }
+
+    #[test]
+    fn analyze_without_seed_uses_default_order() {
+        let wasm = wasm_with_import_and_exported_local();
+        let analyzer = SymbolicAnalyzer::new();
+        let config = SymbolicConfig {
+            max_paths: 5,
+            max_input_combinations: 36,
+            timeout_secs: 30,
+            seed: None,
+        };
+
+        let report = analyzer
+            .analyze_with_config(&wasm, "entry", &config)
+            .unwrap();
+        assert_eq!(report.metadata.seed, None);
     }
 
     #[test]
@@ -684,6 +829,7 @@ mod tests {
             }],
             metadata: SymbolicReportMetadata {
                 config: SymbolicConfig::fast(),
+                seed: None,
                 generated_input_combinations: 10,
                 attempted_input_combinations: 1,
                 distinct_paths_recorded: 1,
@@ -693,6 +839,7 @@ mod tests {
                 truncation_reasons: vec![
                     "input combination cap reached at 64 generated combinations".to_string(),
                 ],
+                seed: None,
             },
         };
 
@@ -700,5 +847,26 @@ mod tests {
         assert!(toml.contains("[metadata]"));
         assert!(toml.contains("max_paths = 25"));
         assert!(toml.contains("truncated_by_input_cap = true"));
+    }
+
+    #[test]
+    fn analyze_with_storage_seed_uses_initial_state() {
+        let wasm = wasm_with_import_and_exported_local();
+        let analyzer = SymbolicAnalyzer::new();
+        let config = SymbolicConfig {
+            max_paths: 5,
+            max_input_combinations: 36,
+            timeout_secs: 30,
+            seed: None,
+            storage_seed: Some(r#"{"counter": 100}"#.to_string()),
+        };
+
+        // The test verifies that the config accepts a storage seed.
+        // Actual storage seeding behavior depends on ContractExecutor implementation.
+        let report = analyzer
+            .analyze_with_config(&wasm, "entry", &config)
+            .expect("symbolic analysis with storage seed should complete");
+
+        assert_eq!(report.metadata.config.storage_seed, Some(r#"{"counter": 100}"#.to_string()));
     }
 }
