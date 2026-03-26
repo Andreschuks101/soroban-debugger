@@ -40,6 +40,8 @@ impl FlameGraphGenerator {
                 }
             }
 
+            for (idx, (_key, access)) in function.storage_accesses.iter().enumerate() {
+                let cost = access.total_cpu as f64;
             for (idx, access) in function.storage_accesses.iter().enumerate() {
                 let cost = access.1.total_cpu as f64;
                 if cost > 0.0 {
@@ -47,6 +49,12 @@ impl FlameGraphGenerator {
                     stacks.push(FlameGraphStack {
                         stack: vec![
                             function.name.clone(),
+                            format!("storage;key{};access_count={}", idx, access.access_count),
+                            format!(
+                                "storage;key{};access_count={}",
+                                idx,
+                                access.1.access_count
+                            ),
                             format!("storage;key{};access_count={}", idx, access.1.access_count),
                         ],
                         count: access_count,
@@ -77,6 +85,20 @@ impl FlameGraphGenerator {
         let collapsed = Self::to_collapsed_stack_format(stacks);
         let reader = std::io::Cursor::new(collapsed);
 
+        let mut opts = inferno::flamegraph::Options::default();
+        opts.image_width = Some(width);
+        opts.min_width = height as f64;
+
+        let mut svg = Vec::new();
+        inferno::flamegraph::from_reader(&mut opts, reader, &mut svg).map_err(|e| {
+            crate::DebuggerError::ExecutionError(format!("Flamegraph render error: {e}"))
+        })?;
+
+        String::from_utf8(svg)
+            .map_err(|e| crate::DebuggerError::ExecutionError(format!("UTF-8 error: {e}")).into())
+        let mut options = inferno::flamegraph::Options::default();
+        options.image_width = Some(width);
+        options.font_size = 12;
         let mut renderer = inferno::flamegraph::Options::default()
             .width(width)
             .height(height)
@@ -95,6 +117,9 @@ impl FlameGraphGenerator {
         path: P,
     ) -> Result<()> {
         let collapsed = Self::to_collapsed_stack_format(stacks);
+        std::fs::write(path, collapsed)
+            .map_err(|e| crate::DebuggerError::FileError(format!("Write error: {e}")))?;
+            .map_err(|e| crate::DebuggerError::FileError(e.to_string()))?;
         std::fs::write(&path, collapsed).map_err(|e| miette::miette!("Failed to write flamegraph to {:?}: {}", path.as_ref(), e))?;
         Ok(())
     }
@@ -106,6 +131,9 @@ impl FlameGraphGenerator {
         height: usize,
     ) -> Result<()> {
         let svg = Self::generate_svg(stacks, width, height)?;
+        std::fs::write(path, svg)
+            .map_err(|e| crate::DebuggerError::FileError(format!("Write error: {e}")))?;
+            .map_err(|e| crate::DebuggerError::FileError(e.to_string()))?;
         std::fs::write(&path, svg).map_err(|e| miette::miette!("Failed to write SVG to {:?}: {}", path.as_ref(), e))?;
         Ok(())
     }

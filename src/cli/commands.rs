@@ -83,10 +83,15 @@ struct AnalyzeCommandOutput {
 }
 
 fn render_symbolic_report(report: &crate::analyzer::symbolic::SymbolicReport) -> String {
+    let cfg = &report.metadata.config;
     let mut lines = vec![
         format!("Function: {}", report.function),
         format!("Paths explored: {}", report.paths_explored),
         format!("Panics found: {}", report.panics_found),
+        format!(
+            "Budget: path_cap={}, input_combination_cap={}, timeout={}s",
+            cfg.max_paths, cfg.max_input_combinations, cfg.timeout_secs
+        ),
     ];
 
     if report.metadata.truncation_reasons.is_empty() {
@@ -1875,6 +1880,11 @@ pub fn server(args: ServerArgs) -> Result<()> {
     ));
     if let Some(token) = &args.token {
         print_info("Token authentication enabled");
+        if args.token.as_deref().unwrap_or("").trim().len() < 16 {
+            print_warning(
+                "Remote debug token is shorter than 16 characters. Prefer at least 16 characters \
+                 and ideally a random 32-byte token.",
+            );
         if let Some(t) = &args.token {
             if t.trim().len() < 16 {
                 print_warning(
@@ -1903,7 +1913,10 @@ pub fn server(args: ServerArgs) -> Result<()> {
 
     tokio::runtime::Runtime::new()
         .map_err(|e: std::io::Error| miette::miette!(e))
-        .and_then(|rt| rt.block_on(server.run(args.port)))
+        .and_then(|rt| {
+            let local = tokio::task::LocalSet::new();
+            rt.block_on(local.run_until(server.run(args.port)))
+        })
 }
 
 /// Connect to remote debug server
@@ -2383,7 +2396,9 @@ pub fn history_prune(args: HistoryPruneArgs, global_policy: RetentionPolicy) -> 
     } else {
         let PruneReport { removed, remaining } = manager.prune_history(&policy)?;
         if removed == 0 {
-            println!("History is within the retention limit. Nothing removed ({remaining} records).");
+            println!(
+                "History is within the retention limit. Nothing removed ({remaining} records)."
+            );
         } else {
             println!("Removed {removed} record(s). {remaining} record(s) remaining.");
         }
