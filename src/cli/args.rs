@@ -536,6 +536,18 @@ pub struct InspectArgs {
     #[arg(long)]
     pub metadata: bool,
 
+    /// Output format: pretty (default) or json
+    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
+    pub format: OutputFormat,
+
+    /// Print source map diagnostics including resolved mappings, missing DWARF sections, and fallback behavior
+    #[arg(long)]
+    pub source_map_diagnostics: bool,
+
+    /// Maximum number of resolved mappings to print in source map diagnostics output
+    #[arg(long, default_value_t = 20, requires = "source_map_diagnostics")]
+    pub source_map_limit: usize,
+
     /// Expected SHA-256 hash of the WASM file. If provided, loading will fail if the computed hash does not match.
     #[arg(long)]
     pub expected_hash: Option<String>,
@@ -784,6 +796,29 @@ mod tests {
         };
 
         assert_eq!(args.timeout, Some(0));
+    }
+
+    #[test]
+    fn inspect_accepts_source_map_diagnostics_flags() {
+        let cli = Cli::parse_from([
+            "soroban-debug",
+            "inspect",
+            "--contract",
+            "contract.wasm",
+            "--source-map-diagnostics",
+            "--source-map-limit",
+            "5",
+            "--format",
+            "json",
+        ]);
+
+        let Commands::Inspect(args) = cli.command.expect("inspect command expected") else {
+            panic!("inspect command expected");
+        };
+
+        assert!(args.source_map_diagnostics);
+        assert_eq!(args.source_map_limit, 5);
+        assert_eq!(args.format, OutputFormat::Json);
     }
 }
 

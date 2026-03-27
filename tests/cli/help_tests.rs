@@ -140,7 +140,8 @@ fn test_inspect_help_shows_options() {
         .assert()
         .success()
         .stdout(predicate::str::contains("--functions"))
-        .stdout(predicate::str::contains("--metadata"));
+        .stdout(predicate::str::contains("--metadata"))
+        .stdout(predicate::str::contains("--source-map-diagnostics"));
 }
 
 #[test]

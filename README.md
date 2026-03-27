@@ -468,8 +468,13 @@ soroban-debug inspect [OPTIONS]
 
 Options:
   -c, --contract <FILE>     Path to the contract WASM file
+      --source-map-diagnostics
+                            Print resolved mappings, missing DWARF sections, and fallback behavior
       --dependency-graph     Export cross-contract dependency graph (DOT + Mermaid)
 ```
+
+Use `soroban-debug inspect --contract my_contract.wasm --source-map-diagnostics --format json`
+when you want a non-interactive DWARF triage report for CI or editor tooling.
 
 For full examples, see [docs/dependency-graph.md](https://github.com/Timi16/soroban-debugger/blob/main/docs/dependency-graph.md).
 
