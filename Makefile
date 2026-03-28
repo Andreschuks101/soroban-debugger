@@ -59,6 +59,11 @@ ci-local: fmt lint test-rust test-vscode check-man
 	@echo "✅ All local CI gates passed successfully!"
 	@echo "======================================="
 
+# Sandbox-safe local gate for restricted environments.
+# Runs deterministic checks and explicitly reports skipped network/temp-dependent gates.
+ci-sandbox:
+	@bash run_local_ci.sh --sandbox
+
 clean:
 	cargo clean
 	rm -rf extensions/vscode/node_modules extensions/vscode/dist
