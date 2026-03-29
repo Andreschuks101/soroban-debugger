@@ -78,6 +78,8 @@ type BreakpointSyncLogRecord = {
   error?: string;
 };
 
+const BREAKPOINT_SYNC_TEST_LOG_ENV = 'SOROBAN_DEBUG_BREAKPOINT_SYNC_TEST_LOG';
+
 export class SorobanDebugSession extends DebugSession {
   private static readonly FIRST_CONTINUE_STOP_REASON: 'breakpoint' = 'breakpoint';
   private logManager: LogManager | undefined;
@@ -865,6 +867,7 @@ export class SorobanDebugSession extends DebugSession {
           LogPhase.DAP,
           `BREAKPOINT_SYNC ${JSON.stringify(setRecord)}`
         );
+        this.emitBreakpointSyncTestLog(setRecord);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         errors.set(
@@ -888,6 +891,15 @@ export class SorobanDebugSession extends DebugSession {
     }
 
     return errors;
+  }
+
+  private emitBreakpointSyncTestLog(record: BreakpointSyncLogRecord): void {
+    if (process.env[BREAKPOINT_SYNC_TEST_LOG_ENV] !== '1' || record.action !== 'set' || !record.success) {
+      return;
+    }
+
+    // Temporary stderr log for e2e regression coverage of heuristic breakpoint sync.
+    process.stderr.write(`BREAKPOINT_SYNC_TEST ${JSON.stringify(record)}\n`);
   }
 
   private async refreshState(): Promise<void> {
