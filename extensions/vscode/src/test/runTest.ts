@@ -27,6 +27,8 @@ type DebugMessage = {
   response?: { type: string; [key: string]: unknown };
 };
 
+const BREAKPOINT_SYNC_TEST_LOG_ENV = "SOROBAN_DEBUG_BREAKPOINT_SYNC_TEST_LOG";
+
 async function startMockDebuggerServer(options: {
   evaluateDelayMs: number;
 }): Promise<{ port: number; close: () => Promise<void> }> {
@@ -161,6 +163,23 @@ async function startMockDebuggerServer(options: {
 
 async function wait(ms: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForProcessLog(
+  getOutput: () => string,
+  pattern: RegExp,
+  timeoutMs = 5_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const output = getOutput();
+    if (pattern.test(output)) {
+      return output;
+    }
+    await wait(25);
+  }
+
+  throw new Error(`Timed out waiting for process log matching ${pattern}`);
 }
 
 async function main(): Promise<void> {
@@ -934,9 +953,15 @@ async function runDapHappyPathE2E(
   fixtures: { contractPath: string; sourcePath: string; binaryPath: string },
 ): Promise<void> {
   const proc = spawn(process.execPath, [debugAdapterPath], {
+    env: { ...process.env, [BREAKPOINT_SYNC_TEST_LOG_ENV]: "1" },
     stdio: ["pipe", "pipe", "pipe"],
   });
   const client = new DapClient(proc);
+  let stderrOutput = "";
+  proc.stderr.setEncoding("utf8");
+  proc.stderr.on("data", (chunk: string) => {
+    stderrOutput += chunk;
+  });
 
   try {
     const init = await client.request("initialize", {
@@ -985,6 +1010,15 @@ async function runDapHappyPathE2E(
       setBps.body?.breakpoints?.[0]?.verified,
       false,
       "Expected heuristic source mapping to be unverified",
+    );
+    const breakpointSyncLog = await waitForProcessLog(
+      () => stderrOutput,
+      /BREAKPOINT_SYNC_TEST .*"action":"set".*"functionName":"echo".*"success":true/,
+    );
+    assert.match(
+      breakpointSyncLog,
+      /BREAKPOINT_SYNC_TEST/,
+      "Expected adapter test log to confirm runtime breakpoint installation",
     );
 
     const configDone = await client.request("configurationDone", {});
