@@ -35,6 +35,7 @@ export interface DebuggerProcessConfig {
   spawnServer?: boolean;
   storageFilter?: string[];
   repeat?: number;
+  dryRun?: boolean;
 }
 
 export interface DebuggerExecutionResult {
@@ -784,6 +785,10 @@ export class DebuggerProcess {
 
     if (this.config.token) {
       args.push("--token", this.config.token);
+    }
+
+    if (this.config.dryRun) {
+      args.push("--dry-run");
     }
 
     if (this.config.storageFilter && this.config.storageFilter.length > 0) {

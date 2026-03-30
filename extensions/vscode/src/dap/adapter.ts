@@ -167,7 +167,8 @@ export class SorobanDebugSession extends DebugSession {
         requestTimeoutMs: args.requestTimeoutMs,
         connectTimeoutMs: args.connectTimeoutMs,
         storageFilter: args.storageFilter,
-        repeat: args.repeat
+        repeat: args.repeat,
+        dryRun: args.dryRun
       }, this.logManager, this.launchLifecycleReporter);
 
       await this.debuggerProcess.start();

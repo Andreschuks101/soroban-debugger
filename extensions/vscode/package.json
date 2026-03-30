@@ -125,6 +125,11 @@
                 "description": "Repeat execution N times and show throughput/latency stats in the Debug Console.",
                 "minimum": 1,
                 "default": 1
+              },
+              "dryRun": {
+                "type": "boolean",
+                "description": "Execute in dry-run mode: simulate execution without persisting storage changes.",
+                "default": false
               }
             }
           },
